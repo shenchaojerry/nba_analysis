@@ -1,6 +1,120 @@
 import pandas as pd
 import numpy as np
+import requests
+import bs4
+from difflib import get_close_matches
+from collections import defaultdict
 
+######## Web Scrapping ########
+
+def get_ESPN(season):
+    teams = ['atl','bkn','bos','cha','chi','cle','dal','den','det','gs','hou','ind',
+            'lac','lal','mem','mia','mil','min','no','ny','okc','orl','phi','phx','por',
+            'sac','sa','tor','utah','wsh']
+    url = "https://www.espn.com/nba/team/stats/_/name/"
+    season_type = f"/season/{season}/seasontype/2" # regular season
+    class_id = "Table Table--align-right"
+    data = []
+    for team in teams:
+        # web scrapping
+        team_info = requests.get(url+team+season_type)
+        soup = bs4.BeautifulSoup(team_info.text,"html.parser")
+        # get stats tables
+        tables = soup.select('table', attrs={'class':class_id})
+        tables = pd.read_html(str(tables))
+        # process player info
+        names = []
+        positions = []
+        for player in tables[0].values[:-1]:
+            info = player[0].replace('*','').split()
+            names.append(' '.join(info[:-1]))
+            positions.append(info[-1])
+        names.append('Total')
+        positions.append(team)
+        player_info = {'Name': names, 'Pos': positions}
+        player_info = pd.DataFrame(player_info)
+        # integrate data
+        data.append(pd.concat([player_info,tables[1],tables[3]],axis=1))
+    Data = pd.concat([d for d in data])
+    return Data
+
+def get_dd(season, Names_espn):
+    url = "https://www.landofbasketball.com/year_by_year_stats/"
+    stats_type = "_double_doubles_rs.htm"
+    page = requests.get(url+f'{season-1}_{season}'+stats_type)
+    soup = bs4.BeautifulSoup(page.text,"html.parser")
+    # get stats tables
+    class_id = "color-alt sobre a-center" 
+    tables = soup.select('table', attrs={'class':class_id})
+    tables = pd.read_html(str(tables))
+    data = tables[0]
+    data = data.iloc[2:-1].drop(0,axis=1)[[1,2]]
+    data.columns = ['Name', 'DD']
+    data = data[data['DD'] != "Double-Doubles"]
+    # process names to align with ESPN
+    names = []
+    for player in data['Name']:
+        info = player.split(' (')
+        name = info[0]
+        # name resolution: e.g. C.J. McCollum -> CJ McCollum
+        if name not in Names_espn:
+            candidates = get_close_matches(name, Names_espn)
+            if candidates:
+                names.append(candidates[0])
+                print(f'change {name} -> {candidates[0]}')
+            else:
+                print(f'Did not find a match, who is {name} ?!')
+        else:
+            names.append(name)
+    data['Name'] = names
+    return data
+
+def get_Hollinger(season, Names_espn):
+    url = "http://insider.espn.com/nba/hollinger/statistics/_/sort/usageRate/page/"
+    # get number of pages
+    page = requests.get(url+f'{1}/year/{season}')
+    soup = bs4.BeautifulSoup(page.text,"html.parser")
+    class_id = "page-numbers"
+    number_of_pages = soup.findAll("div",{'class':class_id})
+    number_of_pages = int(str(number_of_pages).split("</")[0][~1:])
+    # get stats
+    data = []
+    class_id = "tablehead"
+    for p in range(1,number_of_pages+1):
+        page = requests.get(url+f'{p}/year/{season}')
+        soup = bs4.BeautifulSoup(page.text,"html.parser")
+        # get stats table
+        table = soup.select('table', attrs={'class':class_id})
+        table = pd.read_html(str(table))
+        table = table[0]
+        table.drop(0, axis=1, inplace=True)
+        # get columns
+        if p == 1:
+            columns = table.iloc[1].values
+        # filter
+        table = table[[b.isnumeric() for b in table[2]]]
+        table.reset_index(drop=True,inplace=True)
+        # process player info
+        names = []
+        for player in table[1].values:
+            name = player.split(',')[0]
+            # name resolution: e.g. C.J. McCollum -> CJ McCollum
+            if name not in Names_espn:
+                candidates = get_close_matches(name, Names_espn)
+                if candidates:
+                    names.append(candidates[0])
+                    print(f'change {name} -> {candidates[0]}')
+                else:
+                    print(f'Did not find a match, who is {name} ?!')
+            else:
+                names.append(name)
+        data.append(pd.concat([pd.Series(names),table.drop(1,axis=1)],axis=1))
+    Data = pd.concat([d for d in data])
+    Data.columns = columns
+    return Data
+
+
+######## Proprocessing ########
 
 def load_data(season):
     file = f'data/{season}_season_stats_traditional.csv'
@@ -45,6 +159,123 @@ def preprocess_players(data_espn, data_dd, data_hollinger):
     data = data.merge(data_hollinger, how='left', on='Name')
     data.fillna(0, inplace=True)
     return data
+
+######## Yahoo Fantasy ########
+
+def getDraftResult(path):
+    with open(path, 'r') as file:
+        page = file.read()
+
+    soup = bs4.BeautifulSoup(page,"html.parser")
+    # get stats tables
+    class_id = "Table Fz-xxs" 
+    tables = soup.select('table', attrs={'class':class_id})
+    tables = pd.read_html(str(tables))
+    # preprossing
+    league = {}
+    team_size = 0
+    for i in range(len(tables)):
+        tb = tables[i]
+        team = tb.columns[0]
+        draft = tb[tb.columns[-1]].values
+        players = [p.split(" (")[0] for p in draft]
+        league[team] = players
+    return league
+
+def getCurrentStanding(path):
+    with open(path, 'r') as file:
+        page = file.read()
+
+    soup = bs4.BeautifulSoup(page,"html.parser")
+    # get stats tables
+    class_id = "Tst-table Table Ta-start Fz-xs Table-mid Table-px-med" 
+    tables = soup.select('table', attrs={'class':class_id})
+    tables = pd.read_html(str(tables))
+    # get ranking table
+    Ranking = tables[0]
+    columns = [c[1] for c in Ranking.columns]
+    columns[-1] = "Total"
+    Ranking.columns = columns
+    # get statistic table
+    Statistic = tables[1]
+    columns = [c[1] for c in Statistic.columns]
+    Statistic.columns = columns
+    return Ranking, Statistic
+
+def trackStats(season, season_stats):
+    # ESPN
+    data_espn = get_ESPN(season)
+    data_espn.drop(['SC-EFF','SH-EFF'], axis=1, inplace=True)
+    # will align all names to ESPN
+    Names_espn = data_espn['Name'].values
+    # double-double
+    data_dd = get_dd(season, Names_espn)
+    # Hollinger
+    data_hollinger = get_Hollinger(season, Names_espn)
+    data_hollinger = data_hollinger[['PLAYER', 'TS%', 'USG']]
+    data_hollinger.rename(columns={'PLAYER':'Name'}, inplace=True)
+    # integrate
+    data_player = preprocess_players(data_espn, data_dd, data_hollinger)
+    Names_espn = data_player['Name'].values
+    # track players' stats 
+    for player in Names_espn:
+        temp = data_player[data_player["Name"]==player]
+        game_played = temp['GP'].values[0]
+        if player not in season_stats:
+            season_stats[player] = defaultdict(dict)
+            season_stats[player]['Yahoo_team'] = 'Free Agent'
+            season_stats[player]['Injury_report'] = 'Healthy'
+            season_stats[player]['GP'] = defaultdict(dict)
+        if game_played not in season_stats[player]['GP']:
+            season_stats[player]['GP'][game_played] = defaultdict(dict)
+            for col in temp.columns[4:]:
+                season_stats[player]['GP'][game_played][col] = temp[col].values[0]
+    return season_stats
+
+def updateYahooRosters(path, team_size, season_stats):
+    with open(path, 'r') as file:
+        page = file.read()
+
+    soup = bs4.BeautifulSoup(page,"html.parser")
+    # get stats tables
+    class_id = "Table Table-px-xs Mbot-xl" 
+    tables = soup.select('table', attrs={'class':class_id})
+    tables = pd.read_html(str(tables))
+    # get team names
+    class_id = "W-100 Fz-med Ta-c" 
+    teams = soup.findAll("p",{'class':class_id})
+    teams = [str(t) for t in teams]
+    teams = [t.split('</a>')[0].split('>')[-1] for t in teams]
+    # preprocessing
+    league = {}
+    Names_espn = season_stats.keys()
+    for i in range(len(tables)):
+        tb = tables[i]
+        player = tb[tb.columns[1]].values
+        # process player names
+        player = tb[tb.columns[1]].values
+        player = [p.split(" -")[0] for p in player if p != "(Empty)"]
+        player = [p.replace("Notes", "Note") for p in player]
+        player = [p.split("Note ")[-1] for p in player]
+        player = [p.split(" ") for p in player]
+        player = [" ".join(p[:-1]) for p in player]
+        for j in range(len(player)):
+            name = player[j]
+            if name not in Names_espn:
+                candidates = get_close_matches(name, Names_espn)
+                if len(candidates) == 1:
+                    player[j] = candidates[0]
+                    print(f'change {name} -> {candidates[0]}')
+                else:
+                    print(f'pass on {name} -> injury, no records yet')
+                    pass
+        if len(player) != team_size+1: # max team size
+            player.extend(["NA"]*(team_size+1-len(player)))
+        league[teams[i]] = player
+        # update players Yahoo team
+        for p in player:
+            season_stats[p]['Yahoo_team'] = teams[i]
+    return league, season_stats
 
 
 def get_score_table(data, bucket_type):
