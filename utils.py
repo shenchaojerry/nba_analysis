@@ -274,9 +274,42 @@ def updateYahooRosters(path, team_size, season_stats):
         league[teams[i]] = player
         # update players Yahoo team
         for p in player:
+            if p not in season_stats:
+                season_stats[p] = defaultdict(dict)
+                season_stats[p]['Injury_report'] = 'Healthy'
+                season_stats[p]['GP'] = defaultdict(dict)
             season_stats[p]['Yahoo_team'] = teams[i]
     return league, season_stats
 
+def updateInjuryStatus(season_stats):
+    url = "https://www.cbssports.com/nba/injuries/"
+    page = requests.get(url)
+    soup = bs4.BeautifulSoup(page.text,"html.parser")
+    # get stats tables
+    class_id = "TableBase-table" 
+    tables = soup.select('table', attrs={'class':class_id})
+    tables = pd.read_html(str(tables))
+    injuryList = defaultdict()
+    for team in tables:
+        players = team["Player"].values
+        players = [p.split(" ") for p in players]
+        players = [' '.join(p[2:]) for p in players]
+        status = team["Injury Status"].values
+        for name, s in zip(players, status):
+            # name resolution
+            if name not in season_stats:
+                candidates = get_close_matches(name, season_stats.keys())
+                if candidates:
+                    if candidates[0] in name: # e.g. Jr. Otto Porter Jr. -> Otto Porter Jr.
+                        season_stats[candidates[0]]['Injury_report'] = s
+                        print(f'change {name} -> {candidates[0]}')
+                    else:
+                        injuryList[name] = s
+                else:
+                    injuryList[name] = s
+            else:
+                season_stats[name]['Injury_report'] = s
+    return season_stats, injuryList
 
 def get_score_table(data, bucket_type):
     columns = ['Name','Pos','GP','PTS','OR','DR','REB','AST','STL','BLK','TO','PF','AST/TO',
