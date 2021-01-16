@@ -230,7 +230,7 @@ def trackStats(season, season_stats):
                 season_stats[player]['GP'][game_played][col] = temp[col].values[0]
     return season_stats
 
-def updateYahooRosters(path, team_size, season_stats):
+def updateYahooRosters(path, team_size, season_stats, IL=0):
     with open(path, 'r') as file:
         page = file.read()
 
@@ -261,14 +261,16 @@ def updateYahooRosters(path, team_size, season_stats):
             name = player[j]
             if name not in Names_espn:
                 candidates = get_close_matches(name, Names_espn)
-                if len(candidates) == 1:
-                    player[j] = candidates[0]
-                    print(f'change {name} -> {candidates[0]}')
+                if candidates:
+                    if (candidates[0] in name) or (name in candidates[0]): # e.g. Robert Williams -> Robert Williams III
+                        player[j] = candidates[0]
+                        print(f'change {name} -> {candidates[0]}')
+                    else:
+                        print(f'pass on {name} -> no records yet')
                 else:
                     print(f'pass on {name} -> no records yet')
-                    pass
-        if len(player) != team_size+1: # max team size
-            player.extend(["NA"]*(team_size+1-len(player)))
+        if len(player) != team_size+IL: # max team size
+            player.extend(["NA"]*(team_size+IL-len(player)))
         league[teams[i]] = player
     return league
 
