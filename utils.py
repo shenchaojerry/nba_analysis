@@ -223,8 +223,6 @@ def trackStats(season, season_stats):
         game_played = temp['GP'].values[0]
         if player not in season_stats:
             season_stats[player] = defaultdict(dict)
-            season_stats[player]['Yahoo_team'] = 'Free Agent'
-            season_stats[player]['Injury_report'] = 'Healthy'
             season_stats[player]['GP'] = defaultdict(dict)
         if game_played not in season_stats[player]['GP']:
             season_stats[player]['GP'][game_played] = defaultdict(dict)
@@ -267,19 +265,12 @@ def updateYahooRosters(path, team_size, season_stats):
                     player[j] = candidates[0]
                     print(f'change {name} -> {candidates[0]}')
                 else:
-                    print(f'pass on {name} -> injury, no records yet')
+                    print(f'pass on {name} -> no records yet')
                     pass
         if len(player) != team_size+1: # max team size
             player.extend(["NA"]*(team_size+1-len(player)))
         league[teams[i]] = player
-        # update players Yahoo team
-        for p in player:
-            if p not in season_stats:
-                season_stats[p] = defaultdict(dict)
-                season_stats[p]['Injury_report'] = 'Healthy'
-                season_stats[p]['GP'] = defaultdict(dict)
-            season_stats[p]['Yahoo_team'] = teams[i]
-    return league, season_stats
+    return league
 
 def updateInjuryStatus(season_stats):
     url = "https://www.cbssports.com/nba/injuries/"
@@ -301,15 +292,15 @@ def updateInjuryStatus(season_stats):
                 candidates = get_close_matches(name, season_stats.keys())
                 if candidates:
                     if candidates[0] in name: # e.g. Jr. Otto Porter Jr. -> Otto Porter Jr.
-                        season_stats[candidates[0]]['Injury_report'] = s
+                        injuryList[candidates[0]] = s
                         print(f'change {name} -> {candidates[0]}')
                     else:
                         injuryList[name] = s
                 else:
                     injuryList[name] = s
             else:
-                season_stats[name]['Injury_report'] = s
-    return season_stats, injuryList
+                injuryList[name] = s
+    return injuryList
 
 def get_score_table(data, bucket_type):
     columns = ['Name','Pos','GP','PTS','OR','DR','REB','AST','STL','BLK','TO','PF','AST/TO',
