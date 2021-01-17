@@ -274,9 +274,7 @@ def updateYahooRosters(path, team_size, season_stats, IL=0):
         league[teams[i]] = player
     return league
 
-def trackYahooLeague(league, path, IL, season_stats):
-
-    count = len(league)   
+def trackYahooLeague(league, key, path, IL, season_stats):  
     # Get draft results
     draft_result = pd.DataFrame(getDraftResult(path+'/draft_result.txt'))
     team_size = draft_result.shape[0]
@@ -288,10 +286,10 @@ def trackYahooLeague(league, path, IL, season_stats):
     Ranking, Statistic = getCurrentStanding(path+'/Standings.txt')
 
     # Keep records
-    league[count+1] = defaultdict(dict)
-    league[count+1]['Roster'] = league_teams
-    league[count+1]['Ranking'] = Ranking
-    league[count+1]['Statistic'] = Statistic
+    league[key] = defaultdict(dict)
+    league[key]['Roster'] = league_teams
+    league[key]['Ranking'] = Ranking
+    league[key]['Statistic'] = Statistic
     return league
 
 def updateInjuryStatus(season_stats):
