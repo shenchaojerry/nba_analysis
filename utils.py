@@ -202,7 +202,7 @@ def getCurrentStanding(path):
     Statistic.columns = columns
     return Ranking, Statistic
 
-def trackStats(season, season_stats):
+def trackSeasonStats(season, season_stats):
     # ESPN
     data_espn = get_ESPN(season)
     data_espn.drop(['SC-EFF','SH-EFF'], axis=1, inplace=True)
@@ -217,7 +217,7 @@ def trackStats(season, season_stats):
     # integrate
     data_player = preprocess_players(data_espn, data_dd, data_hollinger)
     Names_espn = data_player['Name'].values
-    # track players' stats 
+    # keep records
     for player in Names_espn:
         temp = data_player[data_player["Name"]==player]
         game_played = temp['GP'].values[0]
@@ -272,6 +272,26 @@ def updateYahooRosters(path, team_size, season_stats, IL=0):
         if len(player) != team_size+IL: # max team size
             player.extend(["NA"]*(team_size+IL-len(player)))
         league[teams[i]] = player
+    return league
+
+def trackYahooLeague(league, path, IL, season_stats):
+
+    count = len(league)   
+    # Get draft results
+    draft_result = pd.DataFrame(getDraftResult(path+'/draft_result.txt'))
+    team_size = draft_result.shape[0]
+
+    # Get current Yahoo league roseters
+    league_teams = updateYahooRosters(path+'/Rosters.txt', team_size, season_stats, IL)
+
+    # Get current standings
+    Ranking, Statistic = getCurrentStanding(path+'/Standings.txt')
+
+    # Keep records
+    league[count+1] = defaultdict(dict)
+    league[count+1]['Roster'] = league_teams
+    league[count+1]['Ranking'] = Ranking
+    league[count+1]['Statistic'] = Statistic
     return league
 
 def updateInjuryStatus(season_stats):
